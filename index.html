@@ -96,9 +96,10 @@
   <div id="catStatus"></div>
   <div id="objective"></div>
   <div id="workPanel">
-    <div>REPORT DUE: <span id="clock">10:00</span></div>
+    <div><span id="dayLabel">DAY 1</span> · 💰 $<span id="moneyLabel">0</span></div>
+    <div>TASKS DONE: <span id="taskLabel">—</span></div>
     <div id="workBar"><div id="workFill"></div></div>
-    <div><span id="workPct">0</span>% written</div>
+    <div><span id="workPct">0</span>% of current task</div>
     <div id="awayWarn">⚠ BOSS IS CALLING — ANSWER THE DESK PHONE!</div>
   </div>
   <div id="crosshair">+</div>
@@ -109,23 +110,18 @@
 
 <div id="bossBanner"></div>
 <div id="lockHint">Click to grab the mouse — WASD still moves you</div>
-<div id="compExit">ESC — step away from the computer</div>
+<div id="compExit">X — step away from the computer</div>
 
 <div id="startScreen" class="overlay">
   <h1>🐈 cat HAS STOPPED WORKING</h1>
-  <h2>You just adopted a kitten. You also have a report due. Both need you.</h2>
+  <h2>You just adopted a kitten. You also have a job, rent, and vet bills. Both need you. Forever.</h2>
   <div class="adopt">
     <h3>What's your kitten's name?</h3>
     <input id="catName" maxlength="14" value="Whiskers" spellcheck="false">
     <div class="chips" id="nameChips"></div>
     <h3>Pick a coat</h3>
     <div id="colorRow"></div>
-    <h3>How much chaos can you handle?</h3>
-    <div id="diffRow">
-      <div class="diff sel" data-lvl="0"><b>Level 1 — New Kitten</b>One sweet, mostly-calm kitten. It just wants your attention. Great for learning the ropes.</div>
-      <div class="diff" data-lvl="1"><b>Level 2 — Double Trouble</b>You adopt a second, noticeably more chaotic cat. Twice the meowing.</div>
-      <div class="diff" data-lvl="2"><b>Level 3 — Chaos Colony</b>Three cats. The third one is feral. Your report is doomed. Godspeed.</div>
-    </div>
+    <p style="margin-top:14px;font-size:13px;color:#889">One kitten to start. Want more chaos? The shop sells... more cats.</p>
     <button id="startBtn">🏠 BRING KITTY HOME</button>
   </div>
 </div>
@@ -139,9 +135,10 @@
       <b>Left click</b> pick up / fix / rescue cat<br>
       <b>Right click</b> drop what you're holding<br>
       <b>Computer</b> click it to sit down and type<br>
-      <b>ESC</b> step away from the computer
+      <b>X</b> step away from the computer<br>
+      <b>P</b> pause the game
     </div>
-    <div id="tutGoal">📋 First goal: go to the OFFICE (down the hall, on your left), click the computer, and start typing your report.<br>Listen for meowing — louder means closer, and closer means trouble.</div>
+    <div id="tutGoal">📋 First goal: go to the OFFICE (down the hall, on your left) and click the computer — today's work tasks are on it. Finish them all to get PAID, then buy cat stuff in the shop and go to bed.<br>Listen for meowing — louder means closer, and closer means trouble.</div>
     <button id="tutBtn">GOT IT — TIME TO WORK</button>
   </div>
 </div>
@@ -150,6 +147,36 @@
   <h1 id="endTitle"></h1>
   <p id="endText"></p>
   <button onclick="location.reload()">TRY AGAIN</button>
+</div>
+
+<div id="pauseScreen" class="overlay" style="display:none;background:rgba(10,10,20,0.85)">
+  <h1 style="font-size:42px;color:#ffb347">⏸ PAUSED</h1>
+  <p style="font-size:17px;color:#ccc;margin-top:14px">The cats are frozen mid-scheme. Press <b style="color:#ffe9a8">P</b> to resume.</p>
+</div>
+
+<div id="adoptOverlay" class="overlay" style="display:none;background:rgba(12,12,26,0.92)">
+  <div class="adopt" style="max-width:480px">
+    <h1 style="font-size:24px;color:#ffb347;margin-bottom:12px">🐈 Adopt another cat</h1>
+    <h3>Name the new troublemaker</h3>
+    <input id="adoptName" maxlength="14" value="" spellcheck="false"
+           style="font-family:inherit;font-size:20px;padding:8px 14px;width:240px;text-align:center;background:#14142a;color:#ffe9a8;border:2px solid #4a4a70;border-radius:6px">
+    <div class="chips" id="adoptChips"></div>
+    <h3>Pick a coat</h3>
+    <div id="adoptColors" style="display:flex;gap:10px;justify-content:center"></div>
+    <p id="adoptPriceLine" style="margin-top:16px;font-size:15px;color:#9df09d"></p>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button id="adoptBuy" style="font-family:inherit;font-size:17px;padding:10px 28px;cursor:pointer;margin-top:14px;background:#ffb347;border:none;border-radius:6px;color:#222;font-weight:bold">ADOPT</button>
+      <button id="adoptCancel" style="font-family:inherit;font-size:17px;padding:10px 28px;cursor:pointer;margin-top:14px;background:#44446a;border:none;border-radius:6px;color:#ddd;font-weight:bold">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<div id="dayOverlay" class="overlay" style="display:none">
+  <div class="adopt" style="max-width:600px">
+    <h1 id="dayOvTitle" style="font-size:30px;color:#ffb347;margin-bottom:16px"></h1>
+    <p id="dayOvText" style="font-size:16px;color:#ddd;line-height:1.9;text-align:left"></p>
+    <button id="dayOvBtn" style="font-family:inherit;font-size:19px;padding:12px 32px;cursor:pointer;margin-top:22px;background:#ffb347;border:none;border-radius:6px;color:#222;font-weight:bold"></button>
+  </div>
 </div>
 
 <script type="importmap">
