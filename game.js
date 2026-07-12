@@ -22,8 +22,14 @@ const DISTRACT_MIN = 5;           // seconds — a bored cat's attention floor
 // each new cat is more chaotic than the last, and hazards pace up per cat.
 const CHAOS_LADDER = [0.9, 1.3, 1.65, 2.0];
 const MAX_CATS = 4;
-const ADOPT_PRICES = [0, 75, 160, 300];  // price of cat #2, #3, #4 (index = current cat count)
-function adoptPrice() { return ADOPT_PRICES[Math.min(cats.length + pendingAdopts.length, ADOPT_PRICES.length - 1)]; }
+// adoption is free — the shelter just doesn't always have a cat ready.
+// CAT_AVAILABLE_DAYS[n] = the day cat #(n+1) becomes available for adoption.
+const CAT_AVAILABLE_DAYS = [1, 3, 6, 10];
+function nextCatIdx() { return cats.length + pendingAdopts.length; }
+function catAvailable() {
+  const i = nextCatIdx();
+  return i < MAX_CATS && day >= CAT_AVAILABLE_DAYS[i];
+}
 function riskWindow() {
   const n = cats.length;
   return [Math.max(16, 34 - 7 * (n - 1)), Math.max(30, 56 - 9 * (n - 1))];
@@ -312,6 +318,7 @@ function registerInteract(obj, data) {
 
 function addToggleHazard(id, mesh, opts) {
   const h = { id, type: 'toggle', mesh, tier: 2, everFixed: false, ...opts };
+  h.curSurface = h.surface || null;   // where the hazard is reachable NOW (items can move)
   hazards[id] = h;
   registerInteract(mesh, { act: 'toggle', id });
   applyToggleVis(h);
@@ -324,6 +331,7 @@ function applyToggleVis(h) {
 function addItemHazard(id, mesh, opts) {
   const h = { id, type: 'item', mesh, tier: 2, stashed: false, held: false,
               home: mesh.position.clone(), ...opts };
+  h.curSurface = h.surface || null;   // tracks the surface the item currently sits on
   hazards[id] = h;
   registerInteract(mesh, { act: 'item', id });
   return h;
@@ -395,13 +403,22 @@ const kb = grp(-6.8, 0.9, -2.85);
 box(0.8, 0.05, 0.32, 0x333a44, 0, 0.03, 0, kb);
 for (let i = 0; i < 3; i++) box(0.72, 0.02, 0.07, 0x8892a0, 0, 0.06, -0.1 + i * 0.1, kb); // key rows
 registerInteract(kb, { act: 'computer' });
-// office chair
+// office chair — seat with the backrest flush against its REAR edge, armrests, star base
 const chair = grp(-6.8, 0, -2.2);
-box(0.55, 0.1, 0.55, 0x444a55, 0, 0.5, 0, chair);
-box(0.55, 0.6, 0.1, 0x444a55, 0, 0.85, 0.28, chair);
-cyl(0.05, 0.05, 0.4, 0x222222, 0, 0.28, 0, chair);
-box(0.5, 0.05, 0.08, 0x222222, 0, 0.04, 0, chair);
-box(0.08, 0.05, 0.5, 0x222222, 0, 0.04, 0, chair);
+box(0.52, 0.08, 0.5, 0x444a55, 0, 0.52, 0, chair);                   // seat (rear edge z=0.25)
+const chBack = box(0.5, 0.66, 0.09, 0x444a55, 0, 0.88, 0.3, chair);  // backrest, slight recline
+chBack.rotation.x = 0.12;
+for (const sx of [-0.3, 0.3]) {
+  box(0.06, 0.22, 0.06, 0x333944, sx, 0.63, 0.1, chair);             // armrest posts
+  box(0.09, 0.04, 0.34, 0x222222, sx, 0.76, 0.02, chair);            // arm pads
+}
+cyl(0.05, 0.05, 0.42, 0x222222, 0, 0.3, 0, chair);                   // gas lift
+for (let i = 0; i < 5; i++) {                                        // 5-star base + casters
+  const a = i * Math.PI * 2 / 5;
+  const leg = box(0.34, 0.04, 0.06, 0x222222, Math.cos(a) * 0.17, 0.06, Math.sin(a) * 0.17, chair);
+  leg.rotation.y = -a;
+  sph(0.035, 0x111111, Math.cos(a) * 0.32, 0.035, Math.sin(a) * 0.32, chair);
+}
 // desk phone
 const phoneMesh = grp(-5.95, 0.9, -3.3);
 box(0.34, 0.09, 0.24, 0x1f8f1f, 0, 0.05, 0, phoneMesh);
@@ -1060,6 +1077,84 @@ box(0.5, 0.08, 0.5, 0x9a6aa0, -0.15, 1.62, 0.1, condo);
 hitPad(condo, 0.6, 0, 0.7, 0);
 addDistraction('condo', condo, 'deluxe cat condo', 60, { price: 100, unlock: 5 }, 'curl');
 
+// ---------- DAILY TRAPS (scattered to random spots each morning) ----------
+// a pool of small, irresistible, terrible things. every day 3-6 of them turn up
+// at random walkable spots across ALL floors, so the cats always have somewhere
+// new to get in trouble — basement included.
+function dailyTrap(id, label, anim, dangerText, build) {
+  const g = grp(0, 0, 0);
+  build(g);
+  hitPad(g, 0.32, 0, 0.1, 0);
+  const h = addItemHazard(id, g, { name: label.split(' (')[0], anim, label, tier: 1, dangerText, daily: true });
+  h.stashed = true;         // inert until daySetup deals it out
+  g.visible = false;
+  return h;
+}
+dailyTrap('bandball', 'rubber band ball (cats swallow these)', 'paw',
+  'The cat is unraveling the RUBBER BAND BALL!', g => {
+    sph(0.09, 0xcc5544, 0, 0.08, 0, g);
+    box(0.02, 0.14, 0.02, 0x5577cc, 0.09, 0.05, 0.04, g);
+    box(0.02, 0.12, 0.02, 0xcccc55, -0.08, 0.04, -0.05, g);
+  });
+dailyTrap('tinsel', 'tinsel strand (deadly if eaten)', 'eat',
+  'The cat is EATING THE TINSEL!', g => {
+    for (let i = 0; i < 5; i++) {
+      const t = box(0.14, 0.015, 0.03, i % 2 ? 0xd8e8f8 : 0xaac8e8, -0.2 + i * 0.1, 0.02, (i % 2) * 0.08 - 0.04, g);
+      t.rotation.y = i * 0.7;
+    }
+  });
+dailyTrap('pill', 'dropped pill (very toxic)', 'eat',
+  'The cat is licking the DROPPED PILL!', g => {
+    const p = cyl(0.03, 0.03, 0.07, 0xee8899, 0, 0.03, 0, g);
+    p.rotation.z = Math.PI / 2;
+    cyl(0.028, 0.028, 0.03, 0xffffff, 0.02, 0.03, 0, g);
+  });
+dailyTrap('charger', 'phone charger cable', 'tangle',
+  'The cat is CHEWING THE CHARGER CABLE!', g => {
+    for (let i = 0; i < 4; i++) {
+      const cbl = box(0.22, 0.02, 0.02, 0xf0f0f0, -0.15 + i * 0.1, 0.02, Math.sin(i * 2) * 0.08, g);
+      cbl.rotation.y = i * 1.1;
+    }
+    box(0.07, 0.03, 0.05, 0xdddddd, 0.25, 0.02, 0, g);   // the plug end
+  });
+dailyTrap('twistties', 'twist ties (choking hazard)', 'paw',
+  'The cat is batting the TWIST TIES everywhere!', g => {
+    for (let i = 0; i < 3; i++) {
+      const t = box(0.1, 0.012, 0.012, [0xcc4444, 0x44aa44, 0xeeeeee][i], -0.06 + i * 0.06, 0.015, (i % 2) * 0.06 - 0.03, g);
+      t.rotation.y = i * 1.3;
+    }
+  });
+dailyTrap('floss', 'floss pick (string + plastic)', 'eat',
+  'The cat is swallowing the FLOSS PICK!', g => {
+    box(0.09, 0.015, 0.025, 0x88ccee, 0, 0.02, 0, g);
+    box(0.03, 0.012, 0.04, 0x88ccee, 0.055, 0.02, 0, g);
+  });
+dailyTrap('peanuts', 'packing peanuts (styrofoam snack)', 'eat',
+  'The cat is eating the PACKING PEANUTS!', g => {
+    for (let i = 0; i < 6; i++)
+      box(0.05, 0.03, 0.035, 0xf4f0e4, -0.12 + (i % 3) * 0.1, 0.02, Math.floor(i / 3) * 0.09 - 0.04, g);
+  });
+dailyTrap('earring', 'dropped earring (shiny, swallowable)', 'paw',
+  'The cat is about to SWALLOW YOUR EARRING!', g => {
+    const r = prim(new THREE.TorusGeometry(0.03, 0.008, 6, 10), 0xffd700, 0, 0.02, 0, g);
+    r.rotation.x = Math.PI / 2;
+    sph(0.015, 0xeeeeff, 0.03, 0.025, 0, g);
+  });
+dailyTrap('shoelace', 'stray shoelace', 'tangle',
+  'The cat is tangled in the SHOELACE!', g => {
+    for (let i = 0; i < 4; i++) {
+      const l = box(0.16, 0.015, 0.02, 0xeeeedd, -0.15 + i * 0.1, 0.015, Math.cos(i * 2.2) * 0.06, g);
+      l.rotation.y = 0.5 + i * 0.9;
+    }
+    box(0.03, 0.02, 0.02, 0xbbaa88, 0.24, 0.015, 0, g);   // aglet. it's called an aglet.
+  });
+dailyTrap('tape', 'roll of sticky tape', 'paw',
+  'The cat is stuck to the STICKY TAPE! It is escalating!', g => {
+    const r = prim(new THREE.TorusGeometry(0.06, 0.02, 6, 12), 0xd8d0b8, 0, 0.03, 0, g);
+    r.rotation.x = Math.PI / 2;
+    box(0.1, 0.012, 0.03, 0xe8e0c8, 0.1, 0.02, 0, g);     // peeled-off strip
+  });
+
 // ============================================================
 // NAV GRID (so cats stop walking through walls)
 // ============================================================
@@ -1082,8 +1177,9 @@ function buildNav() {
   for (const lvl of LEVELS) {
     const g = new Uint8Array(NAV.nx * NAV.nz);
     for (let ix = 0; ix < NAV.nx; ix++) for (let iz = 0; iz < NAV.nz; iz++) {
-      // cell is walkable if its CENTER, inflated by the cat radius, clears all walls
-      const cx = NAV.x0 + (ix + 0.5) * NAV.cell, cz = NAV.z0 + (iz + 0.5) * NAV.cell, R = 0.17;
+      // cell is walkable if its CENTER, inflated by the cat radius, clears all walls.
+      // R must exceed collideCat's r=0.2 or paths hug corners the collider then blocks.
+      const cx = NAV.x0 + (ix + 0.5) * NAV.cell, cz = NAV.z0 + (iz + 0.5) * NAV.cell, R = 0.24;
       let blocked = false;
       for (const w of walls) {
         if (w.maxY < lvl + 0.1 || w.minY > lvl + 0.5) continue;
@@ -1111,11 +1207,17 @@ function nearestOkCell(g, ix, iz) {
 }
 function navLos(g, a, b) {
   const [ax, az] = navWorld(a[0], a[1]), [bx, bz] = navWorld(b[0], b[1]);
-  const d = Math.hypot(bx - ax, bz - az), steps = Math.max(2, Math.ceil(d / 0.15));
+  const d = Math.hypot(bx - ax, bz - az), steps = Math.max(2, Math.ceil(d / 0.1));
+  // sample the center line plus two parallels offset by the cat's radius,
+  // so string-pulled shortcuts can't clip a corner the collider would catch
+  const px = d > 0 ? -(bz - az) / d * 0.14 : 0, pz = d > 0 ? (bx - ax) / d * 0.14 : 0;
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    const [cx, cz] = navCell(ax + (bx - ax) * t, az + (bz - az) * t);
-    if (!g[navIdx(cx, cz)]) return false;
+    const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+    for (const [ox, oz] of [[0, 0], [px, pz], [-px, -pz]]) {
+      const [cx, cz] = navCell(x + ox, z + oz);
+      if (!g[navIdx(cx, cz)]) return false;
+    }
   }
   return true;
 }
@@ -1214,6 +1316,7 @@ function makeCat(name, colorDef, chaos) {
       distractUses: {}, distractId: null,   // per-day boredom with each toy
       morningEat: false, napT: 0,
       idlePose: 'sit', perch: null, hopT: 0, hopDur: 0.5, hopFrom: null, hopTo: null,
+      heldT: 0, noHoldT: 0, squirmWarned: false,   // cats tolerate being held only so long
       surf: null,           // the elevated surface the cat is currently on
       afterHop: null,       // {mode, target, sf} — enter this after an upward hop
       goAfterHop: null,     // deferred catGoTo args — walk here after hopping down
@@ -1506,7 +1609,9 @@ function catGoTo(c, x, y, z, nextMode, targetId = null) {
   s.mode = 'walk';
   s.nextMode = nextMode;
   s.target = targetId;
+  s.dest = { x, y, z };
   s.stuckT = 0;
+  s.repathed = false;
 }
 
 function hazardArmed(h) {
@@ -1570,7 +1675,7 @@ function catDecide(c) {
   if (armed.length && Math.random() < seekChance) {
     const h = armed[Math.floor(Math.random() * armed.length)];
     const p = h.mesh.position;
-    const sf = h.surface;
+    const sf = h.curSurface;
     if (sf) catGoTo(c, sf.x + sf.ax, p.y, sf.z + sf.az, 'danger', h.id);
     else catGoTo(c, p.x, p.y, p.z, 'danger', h.id);
     return;
@@ -1591,8 +1696,8 @@ function catDecide(c) {
       return;
     }
   }
-  // wander — range of floors expands with the phases
-  const lvls = phase === 1 ? [0] : phase === 2 ? [0, 3] : LEVELS;
+  // wander — the main floor during the tutorial-ish phase, then the whole house
+  const lvls = phase === 1 ? [0] : LEVELS;
   const lvl = lvls[Math.floor(Math.random() * lvls.length)];
   const [x, z] = randomNavPoint(lvl);
   catGoTo(c, x, lvl, z, 'wanderIdle');
@@ -1612,6 +1717,12 @@ function distractCat(id) {
     if (s.mode === 'held' || s.mode === 'carrier' || s.mode === 'outside' ||
         s.mode === 'hiddenNap' || s.mode === 'waitFood' || s.mode === 'eating' || s.mode === 'hop') continue;
     if (s.mode === 'distracted' && s.distractId && s.distractId !== d.id) continue; // busy with its own thing
+    if (s.distractId === d.id && (s.mode === 'distracted' || (s.mode === 'walk' && s.nextMode === 'distracted'))) {
+      // already using (or heading to) this exact toy — a re-click is NOT a new use:
+      // no boredom tick, no timer reset. finish the current session first.
+      out.push(`${c.name} is already on it (${Math.max(1, Math.ceil(s.distractT))}s left)`);
+      continue;
+    }
     endDanger(c, false);
     const t = distractTime(c, d);
     s.distractUses[d.id] = (s.distractUses[d.id] || 0) + 1;
@@ -1950,11 +2061,15 @@ const GAMES = {
     },
   },
   sheet: {
-    label: 'Fill in the spreadsheet', hint: 'type the cell — letter, then number',
-    start(st) { st.total = 8; st.done = 0; st.cells = {}; this.next(st); },
+    label: 'Fill in the spreadsheet', hint: 'WASD scroll · type the highlighted cell: letter, then number',
+    // the sheet is 6x6, viewed 3x3 at a time (4 pages, scrolled with WASD).
+    // CORP-OS removed columns A and D in an update — conveniently, so typing
+    // a column letter never collides with the scroll keys.
+    COLS: 'BCEFGH',
+    start(st) { st.total = 8; st.done = 0; st.cells = {}; st.px = 0; st.py = 0; this.next(st); },
     next(st) {
       const free = [];
-      for (const col of 'ABCD') for (let r = 1; r <= 3; r++) if (!st.cells[col + r]) free.push(col + r);
+      for (const col of this.COLS) for (let r = 1; r <= 6; r++) if (!st.cells[col + r]) free.push(col + r);
       st.target = pick(free);
       st.entry = { label: pick(SHEET_ITEMS), val: '$' + (5 + Math.floor(Math.random() * 95)) };
       st.stage = 0;  // 0 = waiting for the column letter, 1 = waiting for the row number
@@ -1962,13 +2077,18 @@ const GAMES = {
     },
     key(st, e) {
       if (e.key.length !== 1) return;
+      const lk = e.key.toLowerCase();
+      if (lk === 'a') { st.px = 0; return; }   // scroll — never a cell guess
+      if (lk === 'd') { st.px = 1; return; }
+      if (lk === 'w') { st.py = 0; return; }
+      if (lk === 's') { st.py = 1; return; }
       const k = e.key.toUpperCase();
       if (st.stage === 0) {
-        if (!'ABCD'.includes(k)) return;
+        if (!this.COLS.includes(k)) return;
         if (k === st.target[0]) { st.stage = 1; st.wrong = false; beep(800, 0.05, 0.05, 'sine'); }
         else { st.wrong = true; beep(180, 0.08, 0.06); }
       } else {
-        if (!'123'.includes(k)) return;
+        if (!'123456'.includes(k)) return;
         if (k === st.target[1]) {
           st.cells[st.target] = st.entry;
           st.done++;
@@ -1978,31 +2098,55 @@ const GAMES = {
       }
     },
     draw(st, c, W) {
-      c.font = '14px monospace'; c.textAlign = 'center';
+      const COLS = this.COLS;
+      c.font = '13px monospace'; c.textAlign = 'center';
       c.fillStyle = '#cfe8ff';
-      c.fillText(`Enter  ${st.entry.label} ${st.entry.val}  into cell:`, W / 2, 72);
+      c.fillText(`Enter  ${st.entry.label} ${st.entry.val}  into the highlighted cell`, W / 2, 66);
       c.fillStyle = st.wrong ? '#ff8a8a' : '#ffd9a0';
-      c.font = 'bold 22px monospace';
-      c.fillText(st.stage === 1 ? `${st.target[0]} _` : st.target, W / 2, 98);
-      const x0 = 76, y0 = 116, cw = 90, ch = 34;
-      c.font = '13px monospace';
-      for (let i = 0; i < 4; i++) { c.fillStyle = '#8ab4e8'; c.fillText('ABCD'[i], x0 + cw * i + cw / 2, y0 - 4); }
-      for (let r = 1; r <= 3; r++) {
+      c.fillText(st.wrong ? 'nope — read the headers again'
+               : st.stage === 1 ? `${st.target[0]} _` : 'type the cell: column letter, then row number', W / 2, 83);
+      // which page is the target on?
+      const tCol = COLS.indexOf(st.target[0]), tRow = parseInt(st.target[1], 10) - 1;
+      const tpx = Math.floor(tCol / 3), tpy = Math.floor(tRow / 3);
+      const x0 = 108, y0 = 104, cw = 108, ch = 44;
+      // page indicator
+      c.font = '11px monospace'; c.textAlign = 'right'; c.fillStyle = '#55688a';
+      c.fillText(`cols ${COLS[st.px * 3]}–${COLS[st.px * 3 + 2]} · rows ${st.py * 3 + 1}–${st.py * 3 + 3}`, W - 14, 72);
+      // column + row headers for the visible page
+      c.font = '13px monospace'; c.textAlign = 'center';
+      for (let i = 0; i < 3; i++) {
+        c.fillStyle = '#8ab4e8';
+        c.fillText(COLS[st.px * 3 + i], x0 + cw * i + cw / 2, y0 - 5);
+      }
+      for (let j = 0; j < 3; j++) {
+        const r = st.py * 3 + j + 1;
         c.fillStyle = '#8ab4e8'; c.textAlign = 'right';
-        c.fillText(String(r), x0 - 8, y0 + (r - 1) * ch + 22);
+        c.fillText(String(r), x0 - 10, y0 + j * ch + 27);
         c.textAlign = 'center';
-        for (let i = 0; i < 4; i++) {
-          const id = 'ABCD'[i] + r, filled = st.cells[id];
-          c.fillStyle = filled ? '#12331a' : id === st.target ? '#2a3a6a' : '#16305a';
-          c.fillRect(x0 + cw * i + 2, y0 + (r - 1) * ch + 2, cw - 4, ch - 4);
+        for (let i = 0; i < 3; i++) {
+          const id = COLS[st.px * 3 + i] + r, filled = st.cells[id];
+          const isTarget = id === st.target;
+          c.fillStyle = filled ? '#12331a' : isTarget ? '#8a5a10' : '#16305a';
+          c.fillRect(x0 + cw * i + 2, y0 + j * ch + 2, cw - 4, ch - 4);
+          if (isTarget && !filled) {
+            c.strokeStyle = '#ffd9a0'; c.lineWidth = 3;
+            c.strokeRect(x0 + cw * i + 3.5, y0 + j * ch + 3.5, cw - 7, ch - 7);
+          }
           if (filled) {
             c.fillStyle = '#9df09d'; c.font = '10px monospace';
-            c.fillText(filled.label, x0 + cw * i + cw / 2, y0 + (r - 1) * ch + 15);
-            c.fillText(filled.val, x0 + cw * i + cw / 2, y0 + (r - 1) * ch + 27);
+            c.fillText(filled.label, x0 + cw * i + cw / 2, y0 + j * ch + 19);
+            c.fillText(filled.val, x0 + cw * i + cw / 2, y0 + j * ch + 33);
             c.font = '13px monospace';
           }
         }
       }
+      // off-page? point the way (with the key to press), stacked in the right margin
+      c.fillStyle = '#ffb347'; c.font = 'bold 15px monospace'; c.textAlign = 'left';
+      const ax = x0 + 3 * cw + 14, gy = y0 + 1.5 * ch + 5;
+      if (tpy < st.py) c.fillText('▲ W', ax, gy - 26);
+      if (tpx < st.px) c.fillText('◀ A', ax, gy);
+      if (tpx > st.px) c.fillText('D ▶', ax, gy);
+      if (tpy > st.py) c.fillText('▼ S', ax, gy + 26);
     },
   },
   call: {
@@ -2154,8 +2298,8 @@ function shopCatalog() {
       .map(b => ({ kind: 'storage', rec: b, id: b.id, label: b.label, price: b.price,
                    locked: day < b.unlock, unlock: b.unlock, pending: b.pending, cap: b.cap })),
   ].sort((a, b) => a.price - b.price);
-  if (cats.length + pendingAdopts.length < MAX_CATS)
-    list.push({ kind: 'cat', id: 'adopt', label: 'a whole entire cat', price: adoptPrice(),
+  if (catAvailable())
+    list.push({ kind: 'cat', id: 'adopt', label: 'a whole entire cat', price: 0,
                 locked: false, unlock: 1, pending: false });
   return list;
 }
@@ -2181,8 +2325,7 @@ function buyItem(i) {
 let adoptOpen = false;
 let adoptColor = CAT_COLORS[0];
 function openAdopt() {
-  const price = adoptPrice();
-  if (money < price) { msg(`The adoption fee is $${price}. You cannot afford another cat. (Yet.)`, 'danger'); beep(180, 0.1, 0.08); return; }
+  if (!catAvailable()) { msg('The shelter has no cats available right now. Check back in a few days.'); return; }
   adoptOpen = true;
   document.exitPointerLock();
   const used = new Set(cats.map(c => c.name.toLowerCase()));
@@ -2210,19 +2353,18 @@ function openAdopt() {
     };
     colorRow.appendChild(s);
   });
-  $('adoptPriceLine').textContent = `Adoption fee: $${price} · arrives tomorrow morning · each cat is more chaotic than the last`;
+  $('adoptPriceLine').textContent = 'Adoption is FREE · arrives tomorrow morning · each cat is more chaotic than the last';
   $('adoptOverlay').style.display = 'flex';
 }
 function closeAdopt() {
   adoptOpen = false;
   $('adoptOverlay').style.display = 'none';
   drawScreen();
+  if (!inComputer && started && !gameOver) lockPointer();
 }
 $('adoptBuy').onclick = () => {
-  const price = adoptPrice();
-  if (money < price) { closeAdopt(); return; }
+  if (!catAvailable()) { closeAdopt(); return; }
   const name = ($('adoptName').value.trim() || 'Trouble').slice(0, 14);
-  money -= price;
   pendingAdopts.push({ name, colorDef: adoptColor });
   msg(`🐈 Adoption approved! ${name} arrives tomorrow morning.`, 'good');
   beep(900, 0.12, 0.1, 'triangle');
@@ -2324,14 +2466,14 @@ function drawScreen() {
         c.fillText(`restock: day ${it.unlock}`, x + cardW / 2, y + 101);
       } else {
         c.fillStyle = money >= it.price ? '#9df09d' : '#ff8a8a';
-        c.fillText('$' + it.price, x + cardW / 2, y + 94);
+        c.fillText(it.kind === 'cat' ? 'FREE' : '$' + it.price, x + cardW / 2, y + 94);
       }
     });
     if (shopScroll > 0) { c.fillStyle = '#ffd9a0'; c.font = '12px monospace'; c.textAlign = 'right'; c.fillText('▲ more', W - 12, 62); }
     if (rows - shopScroll > 2) { c.fillStyle = '#ffd9a0'; c.font = '12px monospace'; c.textAlign = 'right'; c.fillText('▼ more', W - 12, 268); }
     c.textAlign = 'center'; c.font = '12px monospace'; c.fillStyle = '#8ab4e8';
     const bobLeft = dayTasks.some(t => t.bob && !t.done);
-    c.fillText(`number = buy${rows > 2 ? ' · ↑↓ scroll' : ''} · T = tasks${bobLeft ? ' (Bob still needs help!)' : ''} · X = done (go to bed)`, W / 2, 305);
+    c.fillText(`number = buy${rows > 2 ? ' · W/S scroll' : ''} · T = tasks${bobLeft ? ' (Bob still needs help!)' : ''} · X = done (go to bed)`, W / 2, 305);
   }
   scrTex.needsUpdate = true;
   const cur = curTaskI >= 0 ? dayTasks[curTaskI] : null;
@@ -2371,8 +2513,8 @@ function handleTyping(e) {  // all keyboard input while sitting at the computer
     }
   } else if (comp === 'shop') {
     if (e.key.toLowerCase() === 't') { comp = 'tasks'; drawScreen(); return; }
-    if (e.key === 'ArrowDown') { shopScroll++; drawScreen(); return; }
-    if (e.key === 'ArrowUp') { shopScroll = Math.max(0, shopScroll - 1); drawScreen(); return; }
+    if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') { shopScroll++; drawScreen(); return; }
+    if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') { shopScroll = Math.max(0, shopScroll - 1); drawScreen(); return; }
     const n = parseInt(e.key, 10);
     if (n >= 1) buyItem(n - 1);
   }
@@ -2390,7 +2532,7 @@ const compCamQuat = new THREE.Quaternion();
 function enterComputer() {
   inComputer = true;
   $('compExit').style.display = 'block';
-  awayTime = 0; ringing = false; ringT = 0; $('awayWarn').style.display = 'none';
+  awayTime = 0;   // sitting down does NOT silence a ringing phone — you must ANSWER it
   updateLockHint();
   if (curTaskI >= 0 && !dayTasks[curTaskI].done) comp = 'game';         // resume mid-task
   else comp = (dayStage === 'evening' && !dayTasks.some(t => t.bob && !t.done)) ? 'shop' : 'tasks';
@@ -2441,6 +2583,7 @@ let comp = 'tasks';           // what the monitor shows: tasks | game | shop
 let firstTaskStarted = false;
 let heartsLostToday = 0, earnedToday = 0, vetToday = false, boughtToday = [];
 let quietT = -1, quietDone = false;   // the "it's too quiet..." event
+const adoptAnnounced = new Set();     // cat indexes whose shelter call already happened
 let dayOvAction = null;
 let overlayOpen = false;              // day-summary/vet dialog up → the whole sim freezes
 $('dayOvBtn').onclick = () => {
@@ -2448,6 +2591,20 @@ $('dayOvBtn').onclick = () => {
   $('dayOverlay').style.display = 'none';
   if (dayOvAction) { const f = dayOvAction; dayOvAction = null; f(); }
 };
+
+// generic two-button dialog (freezes the sim while open)
+function showConfirm(title, text, yesLabel, noLabel, onYes, onNo = null) {
+  overlayOpen = true;
+  document.exitPointerLock();
+  $('confirmTitle').textContent = title;
+  $('confirmText').textContent = text;
+  $('confirmYes').textContent = yesLabel;
+  $('confirmNo').textContent = noLabel;
+  $('confirmOverlay').style.display = 'flex';
+  const close = () => { overlayOpen = false; $('confirmOverlay').style.display = 'none'; };
+  $('confirmYes').onclick = () => { close(); if (onYes) onYes(); };
+  $('confirmNo').onclick = () => { close(); if (onNo) onNo(); else lockPointer(); };
+}
 
 function daySetup() {
   makeDayTasks();
@@ -2464,15 +2621,29 @@ function daySetup() {
   // ...but somehow the cats unpacked every cupboard: stashed items are back out
   const hadStashed = Object.values(containers).some(b => b.used > 0);
   for (const h of Object.values(hazards)) {
-    if (h.type === 'item') {
+    if (h.type === 'item' && !h.daily) {
       h.stashed = false;
       h.held = false;
       h.mesh.visible = true;
       h.mesh.position.copy(h.home);
+      h.curSurface = h.surface || null;
     }
   }
   for (const b of Object.values(containers)) b.used = 0;
   if (hadStashed) msg('🙄 The cats unpacked everything you stashed. It\'s all back out.', 'danger');
+  // deal out today's random traps — a fresh mix at fresh spots, on every floor
+  const dailyPool = Object.values(hazards).filter(h => h.daily);
+  for (const h of dailyPool) { h.stashed = true; h.held = false; h.mesh.visible = false; h.curSurface = null; }
+  const todays = shuffled(dailyPool).slice(0, 3 + Math.min(day - 1, 3));
+  const lvlOrder = shuffled([...LEVELS]);
+  todays.forEach((h, i) => {
+    const lvl = lvlOrder[i % lvlOrder.length];   // round-robin so every floor gets some
+    const [x, z] = randomNavPoint(lvl);
+    h.mesh.position.set(x, lvl, z);
+    h.stashed = false;
+    h.mesh.visible = true;
+  });
+  if (todays.length) msg('🪤 New hazards are lying around the house somewhere. The cats already know.', 'danger');
   // overnight deliveries
   for (const d of Object.values(distracts)) {
     if (d.pending) { d.pending = false; d.owned = true; d.mesh.visible = true; msg(`📦 Delivered overnight: ${d.label}!`, 'good'); }
@@ -2506,6 +2677,14 @@ function daySetup() {
   drawScreen();
   setObjective(`😾 ${catNamesJoined()} is meowing in the KITCHEN — go downstairs and fill the food bowl!`);
   msg(`☀ Day ${day}. The meowing started at 6am sharp.`);
+  // the shelter calls when a new cat becomes available (adoption is free)
+  if (catAvailable() && !adoptAnnounced.has(nextCatIdx())) {
+    adoptAnnounced.add(nextCatIdx());
+    showConfirm('🐈 The shelter called!',
+      'Oh how cute — a new cat is available for adoption. Are you going to rescue it? (It\'s free. The chaos is also free.)',
+      '🐈 RESCUE IT', 'MAYBE LATER',
+      () => openAdopt());
+  }
 }
 
 function goToSleep() {
@@ -2541,7 +2720,7 @@ function goToSleep() {
   $('dayOvTitle').style.color = '#ffb347';
   $('dayOvText').innerHTML = lines.join('<br>');
   $('dayOvBtn').textContent = `☀ WAKE UP — DAY ${day + 1}`;
-  dayOvAction = () => { day++; daySetup(); lockPointer(); };
+  dayOvAction = () => { day++; daySetup(); if (!overlayOpen) lockPointer(); };
   overlayOpen = true;
   $('dayOverlay').style.display = 'flex';
   updateHearts();
@@ -2800,7 +2979,15 @@ renderer.domElement.addEventListener('mousedown', e => {
       return;
     }
     case 'bed': {
-      if (dayStage === 'evening') goToSleep();
+      if (dayStage === 'evening') {
+        const buyable = shopCatalog().filter(it => !it.pending && !it.locked && it.price <= money);
+        if (buyable.length) {
+          showConfirm('🛒 Wait — the shop is still open',
+            `Are you sure you don't want to buy anything else for your cat? You have $${money}, and there ${buyable.length === 1 ? 'is 1 thing' : 'are ' + buyable.length + ' things'} you can afford.`,
+            '🛏 SLEEP ANYWAY', '🛒 KEEP SHOPPING',
+            () => goToSleep());
+        } else goToSleep();
+      }
       else if (dayStage === 'morning') msg('No going back to bed — the cat is starving (allegedly).');
       else msg('No napping. You have work to do.');
       return;
@@ -2860,12 +3047,45 @@ function dropHeld() {
   held = null;
   $('held').textContent = '';
   h.held = false;
+  // aiming at a surface? set the item ON it instead of dumping it on the floor
+  // (mesh stays invisible during the raycast so the ray can't hit the item itself)
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hits = raycaster.intersectObjects(scene.children, true);
+  let placed = false;
+  for (const hit of hits) {
+    if (hit.distance > 3.0) break;
+    const o = hit.object;
+    if (!o.isMesh || o.material === HIT_MAT || !treeVisible(o)) continue;
+    let isCatPart = false;
+    for (let p = o; p; p = p.parent) if (p.userData && p.userData.catRef) { isCatPart = true; break; }
+    if (isCatPart || !hit.face) continue;
+    const n = hit.face.normal.clone().transformDirection(o.matrixWorld);
+    if (n.y < 0.5) continue;   // only tops of things count as surfaces
+    const p = hit.point;
+    h.mesh.position.set(p.x, p.y + 0.03, p.z);
+    const hgt = p.y - nearestLevel(p.y);
+    if (hgt > 0.25) {
+      // elevated — remember the surface so cats hop up to it from the player's side
+      let ax = player.x - p.x, az = player.z - p.z;
+      const d = Math.hypot(ax, az) || 1;
+      h.curSurface = { x: p.x, z: p.z, h: hgt, ax: ax / d * 1.1, az: az / d * 1.1 };
+      if (!h.safeItem) msg(`You set the ${h.label} up there. The cats saw you do it.`, 'danger');
+    } else {
+      h.curSurface = null;
+      if (!h.safeItem) msg(`You dropped the ${h.label}. It is once again a cat magnet.`, 'danger');
+    }
+    placed = true;
+    break;
+  }
+  if (!placed) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const px = player.x + dir.x * 0.9, pz = player.z + dir.z * 0.9;
+    h.mesh.position.set(px, groundY(px, pz, player.y) + 0.15, pz);
+    h.curSurface = null;
+    if (!h.safeItem) msg(`You dropped the ${h.label}. It is once again a cat magnet.`, 'danger');
+  }
   h.mesh.visible = true;
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  const px = player.x + dir.x * 0.9, pz = player.z + dir.z * 0.9;
-  h.mesh.position.set(px, groundY(px, pz, player.y) + 0.15, pz);
-  if (!h.safeItem) msg(`You dropped the ${h.label}. It is once again a cat magnet.`, 'danger');
 }
 function stashHeld(containerLabel) {
   const h = held;
@@ -2878,12 +3098,18 @@ function stashHeld(containerLabel) {
 function pickUpCat(c) {
   const d = camera.position.distanceTo(c.g.position);
   if (d > 3.4) return;
+  if (c.state.noHoldT > 0) {
+    msg(`😾 ${c.name} is not in the mood to be held right now. (${Math.ceil(c.state.noHoldT)}s)`);
+    return;
+  }
   if (c.state.mode === 'hiddenNap') {
     msg(`😌 There you are! ${c.name} was just asleep in ${roomName(c.g.position.x, c.g.position.y, c.g.position.z)}. False alarm.`, 'good');
   }
   endDanger(c, false);
   held = c;
   c.state.mode = 'held';
+  c.state.heldT = 12;
+  c.state.squirmWarned = false;
   c.state.outside = false; c.state.outsideHaz = null;
   c.state.surf = null; c.state.afterHop = null; c.state.goAfterHop = null;
   $('held').textContent = `🤚 Holding: ${c.name.toUpperCase()} (purring). Right-click to put down (bonus: drop it on the cat bed).`;
@@ -3157,6 +3383,7 @@ function tick(now) {
 function updateCat(c, dt) {
   const s = c.state;
   animateCat(c);
+  if (s.noHoldT > 0) s.noHoldT -= dt;
 
   if (s.mode === 'carrier' || s.mode === 'introSit') return;
 
@@ -3213,6 +3440,26 @@ function updateCat(c, dt) {
   }
 
   if (s.mode === 'held') {
+    s.heldT -= dt;
+    if (s.heldT <= 3 && !s.squirmWarned) {
+      s.squirmWarned = true;
+      msg(`😾 ${c.name} is getting squirmy...`);
+    }
+    if (s.heldT <= 0) {
+      // the cat has decided it is DONE being held
+      held = null;
+      $('held').textContent = '';
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const px = player.x + dir.x * 0.7, pz = player.z + dir.z * 0.7;
+      c.g.position.set(px, groundY(px, pz, player.y), pz);
+      s.mode = 'wander';
+      s.idleT = 1.5;
+      s.noHoldT = 20;
+      msg(`🐈 ${c.name} squirmed out of your arms! It needs some space now.`, 'danger');
+      meow(0.5, 1.4);
+      return;
+    }
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     c.g.position.set(camera.position.x + dir.x * 0.6, camera.position.y - 0.7, camera.position.z + dir.z * 0.6);
@@ -3239,7 +3486,7 @@ function updateCat(c, dt) {
       } else if (nm === 'danger') {
         const h = hazards[s.target];
         if (hazardArmed(h)) {
-          const sf = h.surface;
+          const sf = h.curSurface;
           if (sf) {   // the trouble is up on a surface — jump onto it first
             s.afterHop = { mode: 'danger', target: s.target, sf };
             startHop(c, { x: sf.x, y: nearestLevel(c.g.position.y) + sf.h, z: sf.z }, true);
@@ -3288,7 +3535,13 @@ function updateCat(c, dt) {
     if (moved < sp * 0.35) {
       s.stuckT += dt;
       if (s.stuckT > 2.5) { s.waypoints.shift(); s.stuckT = 0; return; } // squeeze past — never wedge forever
-    } else s.stuckT = 0;
+      if (s.stuckT > 1.2 && !s.repathed && s.dest) {
+        // wedged on a corner — recompute the whole route from where we actually are
+        s.repathed = true;
+        s.waypoints = routeTo(c, s.dest.x, s.dest.y, s.dest.z);
+        return;
+      }
+    } else { s.stuckT = 0; s.repathed = false; }
     c.g.position.x = nx;
     c.g.position.z = nz;
     c.g.position.y = groundY(c.g.position.x, c.g.position.z, c.g.position.y);
@@ -3418,7 +3671,7 @@ requestAnimationFrame(tick);
 
 // debug/testing hook (harmless in normal play)
 window.DEBUG = { player, cats, hazards, distracts, containers, NAV, walls, catGoTo, openCarrier, gridPath,
-  PERCHES, pickUpCat, dropCatAt, startHop, buyItem, shopCatalog,
+  PERCHES, pickUpCat, dropCatAt, startHop, buyItem, shopCatalog, pickUpItem, dropHeld,
   get bowlFull() { return bowlFull; }, get overlayOpen() { return overlayOpen; },
   enterComputer, exitComputer, daySetup, goToSleep, vetVisit, finishWorkDay, completeTask, makeDayTasks,
   dismissTutorial: () => $('tutBtn').onclick(),
@@ -3429,4 +3682,5 @@ window.DEBUG = { player, cats, hazards, distracts, containers, NAV, walls, catGo
   get phase() { return phase; }, get playClock() { return playClock; },
   get day() { return day; }, get money() { return money; },
   get dayStage() { return dayStage; }, set dayStage(v) { dayStage = v; },
+  get ringing() { return ringing; }, set ringing(v) { ringing = v; },
   get dayTasks() { return dayTasks; }, get hearts() { return hearts; }, set hearts(v) { hearts = v; updateHearts(); } };
