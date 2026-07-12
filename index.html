@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cat Has Stopped Working</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: "Courier New", monospace; }
+  #app { width: 100%; height: 100%; }
+  canvas { display: block; }
+
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+             flex-direction: column; z-index: 20; color: #eee; text-align: center; }
+  #startScreen { background: #1a1a2e; overflow-y: auto; }
+  #startScreen h1 { font-size: 40px; color: #ffb347; margin-bottom: 6px; }
+  #startScreen h2 { font-size: 16px; color: #aaa; font-weight: normal; margin-bottom: 20px; }
+  .adopt { background: #23233c; border: 2px solid #3a3a5c; border-radius: 10px; padding: 22px 30px; max-width: 640px; }
+  .adopt h3 { color: #ffd9a0; font-size: 17px; margin: 14px 0 8px; }
+  .adopt h3:first-child { margin-top: 0; }
+  #catName { font-family: inherit; font-size: 20px; padding: 8px 14px; width: 260px; text-align: center;
+             background: #14142a; color: #ffe9a8; border: 2px solid #4a4a70; border-radius: 6px; }
+  .chips { margin-top: 8px; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .chip { font-size: 13px; padding: 4px 10px; background: #30304e; border-radius: 12px; cursor: pointer; color: #ccc; }
+  .chip:hover { background: #44446a; color: #fff; }
+  #colorRow { display: flex; gap: 10px; justify-content: center; }
+  .swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; }
+  .swatch.sel { border-color: #ffb347; }
+  #diffRow { display: flex; gap: 10px; justify-content: center; }
+  .diff { flex: 1; background: #2b2b46; border: 2px solid #3a3a5c; border-radius: 8px; padding: 10px 8px;
+          cursor: pointer; font-size: 13px; color: #bbb; line-height: 1.45; }
+  .diff b { color: #ffd9a0; display: block; font-size: 14px; margin-bottom: 3px; }
+  .diff.sel { border-color: #ffb347; background: #34345a; color: #ddd; }
+  .diff.locked-note { font-size: 11px; color: #888; }
+  #startBtn, #endScreen button, #tutBtn {
+    font-family: inherit; font-size: 20px; padding: 12px 36px; cursor: pointer; margin-top: 20px;
+    background: #ffb347; border: none; border-radius: 6px; color: #222; font-weight: bold;
+  }
+  #startBtn:hover, #endScreen button:hover, #tutBtn:hover { background: #ffc46b; }
+
+  #tutorial { background: rgba(12,12,26,0.9); display: none; }
+  #tutorial .adopt { max-width: 560px; }
+  #tutorial h1 { font-size: 26px; color: #ffb347; margin-bottom: 14px; }
+  #tutorial .keys { text-align: left; display: inline-block; line-height: 2; font-size: 15px; color: #ddd; }
+  #tutorial .keys b { color: #ffe9a8; display: inline-block; min-width: 120px; }
+  #tutGoal { margin-top: 14px; font-size: 15px; color: #9df09d; line-height: 1.5; }
+
+  #endScreen { background: rgba(10,10,20,0.92); display: none; }
+  #endScreen h1 { font-size: 40px; margin-bottom: 12px; }
+  #endScreen p { font-size: 18px; color: #ccc; margin-bottom: 26px; max-width: 560px; line-height: 1.6; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; color: #fff;
+         text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+  #hearts { position: absolute; top: 14px; left: 16px; font-size: 22px; letter-spacing: 2px; }
+  #workPanel { position: absolute; top: 14px; right: 16px; text-align: right; font-size: 15px; line-height: 1.5; }
+  #workBar { width: 220px; height: 12px; background: rgba(255,255,255,0.2); border-radius: 6px; margin-top: 4px; }
+  #workFill { height: 100%; width: 0%; background: #6fd66f; border-radius: 6px; transition: width 0.2s; }
+  #awayWarn { color: #ff6b6b; font-weight: bold; display: none; margin-top: 6px; animation: blink 0.8s infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+               font-size: 18px; color: rgba(255,255,255,0.85); }
+  #hint { position: absolute; top: 56%; left: 50%; transform: translateX(-50%);
+          font-size: 15px; color: #ffe9a8; background: rgba(0,0,0,0.45); padding: 4px 12px;
+          border-radius: 4px; display: none; }
+  #held { position: absolute; bottom: 16px; right: 16px; font-size: 15px; color: #cfe8ff; }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+               font-size: 15px; color: #9df09d; background: rgba(0,0,0,0.55); padding: 6px 16px;
+               border-radius: 5px; display: none; }
+  #messages { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+              display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
+  .msg { background: rgba(0,0,0,0.72); padding: 8px 18px; border-radius: 6px; font-size: 17px;
+         color: #fff; white-space: nowrap; }
+  .msg.danger { color: #ff8a8a; font-weight: bold; }
+  .msg.good { color: #9df09d; }
+  .msg.talk { color: #ffe9a8; font-style: italic; font-size: 18px; border: 1px solid rgba(255,233,168,0.4); }
+  #catStatus { position: absolute; top: 52px; left: 16px; font-size: 14px; color: #ffd0d0; max-width: 46vw; }
+
+  #bossBanner { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 12;
+                background: rgba(20,10,10,0.9); border: 2px solid #ff6b6b; border-radius: 8px;
+                color: #ffd9a0; font-size: 19px; padding: 12px 26px; display: none; max-width: 70vw;
+                text-align: center; text-shadow: 0 1px 3px #000; }
+
+  #lockHint { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); z-index: 12;
+              background: rgba(0,0,0,0.7); color: #ffe9a8; font-size: 16px; padding: 8px 20px;
+              border-radius: 6px; display: none; animation: blink 1.6s infinite; }
+  #compExit { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 12;
+              color: #8ab4e8; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px 14px;
+              border-radius: 5px; display: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <div id="hearts"></div>
+  <div id="catStatus"></div>
+  <div id="objective"></div>
+  <div id="workPanel">
+    <div>REPORT DUE: <span id="clock">10:00</span></div>
+    <div id="workBar"><div id="workFill"></div></div>
+    <div><span id="workPct">0</span>% written</div>
+    <div id="awayWarn">⚠ BOSS IS CALLING — ANSWER THE DESK PHONE!</div>
+  </div>
+  <div id="crosshair">+</div>
+  <div id="hint"></div>
+  <div id="held"></div>
+  <div id="messages"></div>
+</div>
+
+<div id="bossBanner"></div>
+<div id="lockHint">Click to grab the mouse — WASD still moves you</div>
+<div id="compExit">ESC — step away from the computer</div>
+
+<div id="startScreen" class="overlay">
+  <h1>🐈 cat HAS STOPPED WORKING</h1>
+  <h2>You just adopted a kitten. You also have a report due. Both need you.</h2>
+  <div class="adopt">
+    <h3>What's your kitten's name?</h3>
+    <input id="catName" maxlength="14" value="Whiskers" spellcheck="false">
+    <div class="chips" id="nameChips"></div>
+    <h3>Pick a coat</h3>
+    <div id="colorRow"></div>
+    <h3>How much chaos can you handle?</h3>
+    <div id="diffRow">
+      <div class="diff sel" data-lvl="0"><b>Level 1 — New Kitten</b>One sweet, mostly-calm kitten. It just wants your attention. Great for learning the ropes.</div>
+      <div class="diff" data-lvl="1"><b>Level 2 — Double Trouble</b>You adopt a second, noticeably more chaotic cat. Twice the meowing.</div>
+      <div class="diff" data-lvl="2"><b>Level 3 — Chaos Colony</b>Three cats. The third one is feral. Your report is doomed. Godspeed.</div>
+    </div>
+    <button id="startBtn">🏠 BRING KITTY HOME</button>
+  </div>
+</div>
+
+<div id="tutorial" class="overlay">
+  <div class="adopt">
+    <h1 id="tutTitle">Alright, be good!</h1>
+    <div class="keys">
+      <b>WASD</b> move<br>
+      <b>Mouse</b> look around<br>
+      <b>Left click</b> pick up / fix / rescue cat<br>
+      <b>Right click</b> drop what you're holding<br>
+      <b>Computer</b> click it to sit down and type<br>
+      <b>ESC</b> step away from the computer
+    </div>
+    <div id="tutGoal">📋 First goal: go to the OFFICE (down the hall, on your left), click the computer, and start typing your report.<br>Listen for meowing — louder means closer, and closer means trouble.</div>
+    <button id="tutBtn">GOT IT — TIME TO WORK</button>
+  </div>
+</div>
+
+<div id="endScreen" class="overlay">
+  <h1 id="endTitle"></h1>
+  <p id="endText"></p>
+  <button onclick="location.reload()">TRY AGAIN</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>
