@@ -711,7 +711,7 @@ for (const [lx, lz] of [[-0.9, -0.5], [0.9, -0.5], [-0.9, 0.5], [0.9, 0.5]])
 for (const dx of [-1.4, 1.4]) {
   const ch = grp(5.5 + dx, 0, 3.5);
   box(0.42, 0.06, 0.42, 0x9a7248, 0, 0.45, 0, ch);
-  box(0.42, 0.55, 0.06, 0x9a7248, dx < 0 ? -0.18 : 0.18, 0.75, 0, ch);
+  box(0.42, 0.55, 0.06, 0x9a7248, 0, 0.75, -0.18, ch);
   ch.rotation.y = dx < 0 ? Math.PI / 2 : -Math.PI / 2;
   for (const [lx, lz] of [[-0.17, -0.17], [0.17, -0.17], [-0.17, 0.17], [0.17, 0.17]])
     box(0.05, 0.45, 0.05, 0x7a5a3a, lx, 0.22, lz, ch);
@@ -1708,33 +1708,49 @@ function distractTime(c, d) {
   const uses = c.state.distractUses[d.id] || 0;
   return Math.max(DISTRACT_MIN, d.time / Math.pow(2, uses));
 }
+// a cat counts as "on" a toy if it's using it or walking toward it
+function onToy(c, id) {
+  const s = c.state;
+  return s.distractId === id &&
+    (s.mode === 'distracted' || (s.mode === 'walk' && s.nextMode === 'distracted'));
+}
 function distractCat(id) {
   const d = distracts[id];
   if (!d || !d.owned) return;
-  const out = [];
-  for (const c of cats) {
-    const s = c.state;
-    if (s.mode === 'held' || s.mode === 'carrier' || s.mode === 'outside' ||
-        s.mode === 'hiddenNap' || s.mode === 'waitFood' || s.mode === 'eating' || s.mode === 'hop') continue;
-    if (s.mode === 'distracted' && s.distractId && s.distractId !== d.id) continue; // busy with its own thing
-    if (s.distractId === d.id && (s.mode === 'distracted' || (s.mode === 'walk' && s.nextMode === 'distracted'))) {
-      // already using (or heading to) this exact toy — a re-click is NOT a new use:
-      // no boredom tick, no timer reset. finish the current session first.
-      out.push(`${c.name} is already on it (${Math.max(1, Math.ceil(s.distractT))}s left)`);
-      continue;
-    }
-    endDanger(c, false);
-    const t = distractTime(c, d);
-    s.distractUses[d.id] = (s.distractUses[d.id] || 0) + 1;
-    const sf = d.surface;
-    if (sf) catGoTo(c, sf.x + sf.ax, d.pos.y, sf.z + sf.az, 'distracted');
-    else catGoTo(c, d.pos.x, d.pos.y, d.pos.z, 'distracted');
-    s.distractT = t;
-    s.distractId = d.id;
-    out.push(`${c.name} ${t <= DISTRACT_MIN + 0.01 ? 'is pretty bored of it (' + Math.round(t) + 's)' : '(' + Math.round(t) + 's)'}`);
+  // one cat per distraction: if a cat already has this toy, it's locked until done.
+  const occupant = cats.find(c => onToy(c, d.id));
+  if (occupant) {
+    // re-click is NOT a new use: no boredom tick, no timer reset.
+    msg(`→ ${d.label}: ${occupant.name} is already on it (${Math.max(1, Math.ceil(occupant.state.distractT))}s left)`, '');
+    return;
   }
-  if (out.length) msg(`→ ${d.label}: ${out.join(' · ')}`, 'good');
-  else msg('Nobody is interested right now. Tough crowd.');
+  // eligible = free to be lured (not held/away/eating, and not busy with a DIFFERENT toy)
+  const eligible = cats.filter(c => {
+    const m = c.state.mode;
+    if (m === 'held' || m === 'carrier' || m === 'outside' ||
+        m === 'hiddenNap' || m === 'waitFood' || m === 'eating' || m === 'hop') return false;
+    if (c.state.distractId && c.state.distractId !== d.id &&
+        (m === 'distracted' || (m === 'walk' && c.state.nextMode === 'distracted'))) return false;
+    return true;
+  });
+  if (!eligible.length) { msg('Nobody is interested right now. Tough crowd.'); return; }
+  // grab the single NEAREST eligible cat
+  let c = eligible[0], best = Infinity;
+  for (const cand of eligible) {
+    const dx = cand.g.position.x - d.pos.x, dz = cand.g.position.z - d.pos.z;
+    const dist = dx * dx + dz * dz;
+    if (dist < best) { best = dist; c = cand; }
+  }
+  const s = c.state;
+  endDanger(c, false);
+  const t = distractTime(c, d);
+  s.distractUses[d.id] = (s.distractUses[d.id] || 0) + 1;
+  const sf = d.surface;
+  if (sf) catGoTo(c, sf.x + sf.ax, d.pos.y, sf.z + sf.az, 'distracted');
+  else catGoTo(c, d.pos.x, d.pos.y, d.pos.z, 'distracted');
+  s.distractT = t;
+  s.distractId = d.id;
+  msg(`→ ${d.label}: ${c.name} ${t <= DISTRACT_MIN + 0.01 ? 'is pretty bored of it (' + Math.round(t) + 's)' : '(' + Math.round(t) + 's)'}`, 'good');
 }
 
 function endDanger(c, announce = true) {
