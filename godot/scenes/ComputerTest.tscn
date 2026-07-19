@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://catgamecp0000"]
+
+[ext_resource type="Script" path="res://scripts/ComputerTest.gd" id="1_cp"]
+
+[node name="ComputerTest" type="Node3D"]
+script = ExtResource("1_cp")

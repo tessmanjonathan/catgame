@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://catgamect0000"]
+
+[ext_resource type="Script" path="res://scripts/CatTest.gd" id="1_ct"]
+
+[node name="CatTest" type="Node3D"]
+script = ExtResource("1_ct")

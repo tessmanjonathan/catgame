@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://catgamefl0000"]
+
+[ext_resource type="Script" path="res://scripts/FlowTest.gd" id="1_fl"]
+
+[node name="FlowTest" type="Node3D"]
+script = ExtResource("1_fl")
